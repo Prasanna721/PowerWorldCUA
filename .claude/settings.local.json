@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:cua.ai)",
+      "WebSearch",
+      "WebFetch(domain:docs.cua.ai)",
+      "Bash(pip3 list:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:pypi.org)",
+      "Bash(python3:*)",
+      "Bash(source venv/bin/activate)",
+      "Bash(pip install:*)",
+      "Bash(pnpm create:*)",
+      "Bash(python:*)",
+      "Bash(pnpm build)",
+      "Bash(pkill:*)",
+      "Bash(/Applications/Python 3.13/Install Certificates.command)",
+      "Bash(/Applications/Python 3.12/Install Certificates.command)",
+      "Bash(git init:*)"
+    ]
+  }
+}
