@@ -14,6 +14,7 @@ from ..cua.message_types import (
 )
 from ..api.bus_service import BusAPIService, LogEntry
 from ..api.contingency_service import ContingencyAPIService
+from ..api.grid_service import GridAPIService
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +156,10 @@ class WebSocketHandler:
 
         async def run_api():
             try:
-                if endpoint == "buses":
+                if endpoint == "grid":
+                    self.api_service = GridAPIService(log_callback=stream_log)
+                    result = await self.api_service.run()
+                elif endpoint == "buses":
                     self.api_service = BusAPIService(log_callback=stream_log)
                     result = await self.api_service.run()
                 elif endpoint == "contingency":

@@ -430,3 +430,144 @@ async def extract_contingency_data_multi(
     except Exception as e:
         logger.error(f"Error calling Anthropic API: {e}")
         return {"contingencies": [], "error": str(e)}
+
+
+GRID_EXTRACTION_PROMPT = """
+Analyze this screenshot of a PowerWorld Simulator power grid in Run Mode.
+Extract information about the grid structure and power flow into this JSON format:
+
+{
+  "grid": {
+    "name": "<string>",
+    "status": "<string - e.g., 'Running', 'Idle'>",
+    "areas": [
+      {
+        "name": "<string>",
+        "buses": <int>,
+        "generators": <int>,
+        "loads": <int>
+      }
+    ],
+    "summary": {
+      "total_buses": <int>,
+      "total_generators": <int>,
+      "total_loads": <int>,
+      "total_lines": <int>
+    },
+    "observations": [
+      "<string - any notable observations about the grid state>"
+    ]
+  }
+}
+
+IMPORTANT:
+- Identify the grid name if visible
+- Count visible elements (buses, generators, loads, lines)
+- Note the areas if visible (e.g., "Ativ Island", "West Side County")
+- Add any observations about power flow, violations, or status
+
+Return ONLY the JSON object, no additional text.
+"""
+
+
+async def extract_grid_data(screenshot_base64: str, api_key: str) -> Dict[str, Any]:
+    """
+    Send screenshot to Anthropic Claude to analyze power grid.
+
+    Args:
+        screenshot_base64: Base64 encoded image data URL (data:image/png;base64,...)
+        api_key: Anthropic API key
+
+    Returns:
+        Dictionary with grid analysis data
+    """
+    logger.info("Sending grid screenshot to Anthropic for analysis...")
+
+    # Handle both raw base64 and data URL format
+    if screenshot_base64.startswith("data:"):
+        parts = screenshot_base64.split(",", 1)
+        if len(parts) == 2:
+            image_data = parts[1]
+            media_type = "image/png"
+            if "jpeg" in parts[0]:
+                media_type = "image/jpeg"
+        else:
+            image_data = screenshot_base64
+            media_type = "image/png"
+    else:
+        image_data = screenshot_base64
+        media_type = "image/png"
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+
+    payload = {
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 4096,
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": image_data,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": GRID_EXTRACTION_PROMPT,
+                    },
+                ],
+            }
+        ],
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            content = result.get("content", [])
+            if content and len(content) > 0:
+                text_response = content[0].get("text", "")
+
+                try:
+                    grid_data = json.loads(text_response)
+                    logger.info("Successfully extracted grid data")
+                    return grid_data
+                except json.JSONDecodeError:
+                    import re
+                    json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text_response, re.DOTALL)
+                    if json_match:
+                        grid_data = json.loads(json_match.group(1))
+                        logger.info("Extracted grid data from code block")
+                        return grid_data
+
+                    json_match = re.search(r'\{.*"grid".*\}', text_response, re.DOTALL)
+                    if json_match:
+                        grid_data = json.loads(json_match.group(0))
+                        return grid_data
+
+                    logger.error(f"Could not parse JSON from response: {text_response[:500]}")
+                    return {"grid": {}, "error": "Could not parse response", "raw_response": text_response[:500]}
+
+            logger.error("Empty response from Anthropic")
+            return {"grid": {}, "error": "Empty response from Anthropic"}
+
+    except httpx.HTTPStatusError as e:
+        logger.error(f"Anthropic API error: {e.response.status_code} - {e.response.text}")
+        return {"grid": {}, "error": f"API error: {e.response.status_code}"}
+    except Exception as e:
+        logger.error(f"Error calling Anthropic API: {e}")
+        return {"grid": {}, "error": str(e)}

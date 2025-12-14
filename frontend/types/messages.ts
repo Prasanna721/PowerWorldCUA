@@ -99,6 +99,11 @@ export interface APIEndpoint {
 
 export const API_ENDPOINTS: APIEndpoint[] = [
   {
+    id: "grid",
+    name: "Get Power Grid",
+    description: "View power grid in Run Mode",
+  },
+  {
     id: "buses",
     name: "Get Buses",
     description: "Extract bus data from PowerWorld grid",

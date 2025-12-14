@@ -5,6 +5,7 @@ import asyncio
 import logging
 from .bus_service import BusAPIService, LogEntry
 from .contingency_service import ContingencyAPIService
+from .grid_service import GridAPIService
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,13 @@ class ContingencySummary(BaseModel):
 
 
 class ContingencyResponse(BaseModel):
+    status: str
+    data: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    logs: List[LogEntryResponse] = []
+
+
+class GridResponse(BaseModel):
     status: str
     data: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
@@ -163,6 +171,58 @@ async def run_contingency_analysis():
     except Exception as e:
         logger.error(f"Contingency API error: {e}")
         return ContingencyResponse(
+            status="error",
+            error=str(e),
+            logs=[]
+        )
+
+
+@router.post("/grid", response_model=GridResponse)
+async def get_power_grid():
+    """
+    Execute the CUA agent to view the power grid in Run Mode.
+
+    This endpoint:
+    1. Connects to the Windows sandbox
+    2. Opens PowerWorld and clicks Run Mode
+    3. Captures a screenshot of the grid
+    4. Sends to Anthropic to analyze the grid structure
+    5. Returns JSON with grid information
+
+    Note: This is a long-running operation (30-90 seconds typically)
+    """
+    logger.info("Starting grid API request...")
+
+    service = GridAPIService()
+
+    try:
+        result = await service.run()
+
+        logs = [
+            LogEntryResponse(
+                timestamp=log.timestamp,
+                message=log.message,
+                level=log.level
+            )
+            for log in result.logs
+        ]
+
+        if result.status == "success":
+            return GridResponse(
+                status="success",
+                data=result.data,
+                logs=logs
+            )
+        else:
+            return GridResponse(
+                status="error",
+                error=result.error,
+                logs=logs
+            )
+
+    except Exception as e:
+        logger.error(f"Grid API error: {e}")
+        return GridResponse(
             status="error",
             error=str(e),
             logs=[]

@@ -64,6 +64,9 @@ export default function ControlPanel({
         </h2>
         <div className="space-y-2 text-sm text-[#666666]">
           <p>
+            <strong className="text-[#999999]">Get Power Grid:</strong> Opens grid in Run Mode and analyzes structure.
+          </p>
+          <p>
             <strong className="text-[#999999]">Get Buses:</strong> Opens buses dialog and extracts bus data as JSON.
           </p>
           <p>
@@ -76,6 +79,10 @@ export default function ControlPanel({
             HTTP Endpoints
           </h3>
           <div className="font-mono text-xs bg-[#1A1A1A] p-3 border border-[#4A4A4A] space-y-3">
+            <div>
+              <p className="text-[#FF6B00]">POST /api/grid</p>
+              <p className="text-[#666666] mt-1">Returns power grid analysis in Run Mode</p>
+            </div>
             <div>
               <p className="text-[#FF6B00]">POST /api/buses</p>
               <p className="text-[#666666] mt-1">Returns bus data from PowerWorld grid</p>

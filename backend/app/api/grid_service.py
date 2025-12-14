@@ -38,8 +38,8 @@ class APIResult:
     final_screenshot: Optional[str] = None
 
 
-class ContingencyAPIService:
-    """Service to run Contingency Analysis in PowerWorld via CUA agent."""
+class GridAPIService:
+    """Service to get power grid visualization from PowerWorld via CUA agent."""
 
     def __init__(self, log_callback=None):
         self.settings = get_settings()
@@ -55,33 +55,31 @@ class ContingencyAPIService:
         """Add a log entry and optionally stream it."""
         entry = LogEntry(timestamp=time.time(), message=message, level=level)
         self.logs.append(entry)
-        logger.info(f"[ContingencyAPI] {message}")
+        logger.info(f"[GridAPI] {message}")
         if self.log_callback:
             asyncio.create_task(self.log_callback(entry))
 
-    def _get_all_screenshots(self) -> List[str]:
-        """Read all screenshots from saved trajectory."""
+    def _get_latest_screenshot(self) -> Optional[str]:
+        """Read the latest screenshot from saved trajectory."""
         if not self.trajectory_path or not os.path.exists(self.trajectory_path):
-            return []
+            return None
 
         # Find all PNG files in trajectory directory
         pattern = os.path.join(self.trajectory_path, "**", "*.png")
         screenshots = glob.glob(pattern, recursive=True)
 
         if not screenshots:
-            return []
+            return None
 
-        # Sort by modification time
-        screenshots.sort(key=os.path.getmtime)
+        # Get the most recent screenshot by modification time
+        latest = max(screenshots, key=os.path.getmtime)
+        self._log(f"Found screenshot: {latest}")
 
-        result = []
-        for screenshot_path in screenshots:
-            with open(screenshot_path, "rb") as f:
-                image_data = base64.b64encode(f.read()).decode("utf-8")
-            result.append(f"data:image/png;base64,{image_data}")
+        # Read and encode as base64 data URL
+        with open(latest, "rb") as f:
+            image_data = base64.b64encode(f.read()).decode("utf-8")
 
-        self._log(f"Found {len(result)} screenshots in trajectory")
-        return result
+        return f"data:image/png;base64,{image_data}"
 
     async def initialize(self) -> None:
         """Initialize the Computer connection to the cloud sandbox."""
@@ -94,7 +92,7 @@ class ContingencyAPIService:
         )
 
     async def create_agent(self) -> None:
-        """Create the ComputerAgent with contingency analysis instructions."""
+        """Create the ComputerAgent with grid-specific instructions."""
         if not self.computer:
             raise RuntimeError("Computer not initialized")
 
@@ -103,46 +101,38 @@ class ContingencyAPIService:
         # Create unique trajectory directory for this run
         trajectory_base = os.path.join(os.path.dirname(__file__), "..", "..", "trajectories")
         run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.trajectory_path = os.path.join(trajectory_base, f"contingency_api_{run_id}")
+        self.trajectory_path = os.path.join(trajectory_base, f"grid_api_{run_id}")
         os.makedirs(self.trajectory_path, exist_ok=True)
         self._log(f"Trajectory will be saved to: {self.trajectory_path}")
 
         instructions = """
-You are automating PowerWorld Simulator to run Contingency Analysis.
+You are automating PowerWorld Simulator to view the power grid.
 
-TASK: Run contingency analysis and capture results for the first 3 contingencies.
+TASK: Open PowerWorld and enter Run Mode to view the live grid.
 
 STEPS:
-1. If PowerWorld is not open, press Windows key and search for "B10Reserve.pwb", open it
-2. Once grid is visible, click "Tools" > "Contingency Analysis"
-3. Click "Start Run" and wait for analysis to complete
-4. After completion, there are 3 tabs: Contingency, Options, Results
-5. Select the Contingency tab (if not already selected)
-6. For the FIRST 3 contingency rows ONLY (Row 1, Row 2, Row 3):
-   - Click on the row to select it
-   - Click the "Results" tab
-   - Take a screenshot of the results
-   - Go back to "Contingency" tab
-   - Repeat for the next row
-7. STOP after completing Row 3. Do NOT process any more rows.
+1. If PowerWorld is not open, press bottom search box and search for "B10Reserve.pwb", open it
+2. Once the grid is visible, click the "Run Mode" button on the top toolbar (left side)
+3. Wait for Run Mode to activate
+4. Take a screenshot of the grid
 
 IMPORTANT:
-- STRICTLY process only the first 3 rows (Row 1, Row 2, Row 3)
-- Take a screenshot after viewing Results for EACH of these 3 contingencies
-- STOP and end the task after capturing Row 3's results
+- The "Run Mode" button is on the top toolbar, typically on the left side
+- After clicking Run Mode, the grid will show live power flow
+- Take a clear screenshot of the entire grid view
         """.strip()
 
         self.agent = ComputerAgent(
             model="cua/anthropic/claude-sonnet-4.5",
             tools=[self.computer],
             only_n_most_recent_images=5,
-            max_trajectory_budget=20.0,  # Higher budget for more complex task
+            max_trajectory_budget=15.0,
             instructions=instructions,
             trajectory_dir=self.trajectory_path,
         )
 
     async def run(self) -> APIResult:
-        """Execute the contingency analysis task."""
+        """Execute the grid visualization task."""
         self.is_running = True
         self.logs = []
         self.final_screenshot = None
@@ -159,12 +149,9 @@ IMPORTANT:
 
             # Define the task
             task = """
-Open PowerWorld with B10Reserve.pwb if not already open, then:
-1. Click "Tools" > "Contingency Analysis"
-2. Click "Start Run" and wait for completion
-3. Go to Contingency tab
-4. For each contingency row: click the row, click Results tab, take screenshot, go back to Contingency tab
-5. Repeat for all contingency rows
+Open PowerWorld with B10Reserve.pwb if not already open.
+Click the "Run Mode" button on the top toolbar.
+Take a screenshot of the grid in Run Mode.
             """
 
             messages = [{"role": "user", "content": task}]
@@ -185,46 +172,55 @@ Open PowerWorld with B10Reserve.pwb if not already open, then:
                             if text:
                                 self._log(f"Agent: {text[:200]}...")
 
+                    # Capture screenshots - keep the last one
+                    elif item_type == "computer_call_output":
+                        output_content = item.get("content", [])
+                        for output_item in output_content:
+                            if output_item.get("type") in ["computer_screenshot", "input_image"]:
+                                image_url = output_item.get("image_url", "")
+                                if image_url:
+                                    self.final_screenshot = image_url
+                                    self._log("Screenshot captured")
+
                     # Log actions
                     elif item_type == "computer_call":
                         action = item.get("action", {})
                         action_type = action.get("type", "unknown")
                         self._log(f"Executing: {action_type}")
 
-            self._log("Task completed, reading screenshots from trajectory...")
+            self._log("Task completed, reading screenshot from trajectory...")
 
-            # Get ALL screenshots from saved trajectory
-            screenshots = self._get_all_screenshots()
+            # Get the latest screenshot from saved trajectory
+            self.final_screenshot = self._get_latest_screenshot()
 
-            # Process all screenshots with Anthropic
-            if screenshots:
-                from .anthropic_processor import extract_contingency_data_multi
-                self._log(f"Sending {len(screenshots)} screenshots to Anthropic for analysis...")
-                contingency_data = await extract_contingency_data_multi(
-                    screenshots,
+            # Process the final screenshot with Anthropic
+            if self.final_screenshot:
+                from .anthropic_processor import extract_grid_data
+                self._log("Sending screenshot to Anthropic for analysis...")
+                grid_data = await extract_grid_data(
+                    self.final_screenshot,
                     self.settings.anthropic_api_key
                 )
-                num_contingencies = len(contingency_data.get('contingencies', []))
-                self._log(f"Extracted {num_contingencies} contingencies")
+                self._log(f"Grid analysis complete")
 
                 return APIResult(
                     status="success",
-                    data=contingency_data,
+                    data=grid_data,
                     logs=self.logs,
-                    final_screenshot=screenshots[-1] if screenshots else None
+                    final_screenshot=self.final_screenshot
                 )
             else:
-                self._log(f"No screenshots found in trajectory: {self.trajectory_path}", level="error")
+                self._log(f"No screenshot found in trajectory: {self.trajectory_path}", level="error")
                 return APIResult(
                     status="error",
-                    error=f"No screenshots found in trajectory: {self.trajectory_path}",
+                    error=f"No screenshot found in trajectory: {self.trajectory_path}",
                     logs=self.logs
                 )
 
         except Exception as e:
             error_msg = str(e)
             self._log(f"Error: {error_msg}", level="error")
-            logger.error(f"Contingency API error: {e}")
+            logger.error(f"Grid API error: {e}")
             return APIResult(
                 status="error",
                 error=error_msg,
