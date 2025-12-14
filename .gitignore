@@ -26,3 +26,7 @@ Thumbs.db
 # Logs
 *.log
 trajectories/
+test/
+
+# Voice App (separate project)
+voice-app/

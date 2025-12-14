@@ -111,7 +111,7 @@ You are automating PowerWorld Simulator to view the power grid.
 TASK: Open PowerWorld and enter Run Mode to view the live grid.
 
 STEPS:
-1. If PowerWorld is not open, press bottom search box and search for "B10Reserve.pwb", open it
+1. If PowerWorld is not open, press Windows key and search for "B10Reserve.pwb", open it
 2. Once the grid is visible, click the "Run Mode" button on the top toolbar (left side)
 3. Wait for Run Mode to activate
 4. Take a screenshot of the grid
